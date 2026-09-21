@@ -50,10 +50,16 @@ type FormState = {
   notes: string
   durationMinutes: string
   caloriesBurned: string
-  exerciseName: string
+  exercises: ExerciseFormState[]
+}
+
+type ExerciseFormState = {
+  name: string
   sets: string
   reps: string
   weightKg: string
+  durationMinutes: string
+  notes: string
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://daily-tracker-backend-1a0l.onrender.com'
@@ -66,10 +72,7 @@ const emptyForm: FormState = {
   notes: '',
   durationMinutes: '45',
   caloriesBurned: '300',
-  exerciseName: '',
-  sets: '3',
-  reps: '10',
-  weightKg: '',
+  exercises: [{ name: '', sets: '3', reps: '10', weightKg: '', durationMinutes: '', notes: '' }],
 }
 
 function App() {
@@ -81,6 +84,8 @@ function App() {
   const [workouts, setWorkouts] = useState<Workout[]>([])
   const [loading, setLoading] = useState(false)
   const [showComposer, setShowComposer] = useState(false)
+  const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null)
+  const [loadingDetails, setLoadingDetails] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -126,20 +131,39 @@ function App() {
         notes: payload.notes || null,
         durationMinutes: Number(payload.durationMinutes) || 0,
         caloriesBurned: Number(payload.caloriesBurned) || 0,
-        exercises: payload.exerciseName
-          ? [{
-              name: payload.exerciseName,
-              sets: Number(payload.sets) || 0,
-              reps: Number(payload.reps) || 0,
-              weightKg: payload.weightKg ? Number(payload.weightKg) : null,
-            }]
-          : [],
+        exercises: payload.exercises
+          .filter((exercise) => exercise.name.trim())
+          .map((exercise) => ({
+            name: exercise.name.trim(),
+            sets: Number(exercise.sets) || 0,
+            reps: Number(exercise.reps) || 0,
+            weightKg: exercise.weightKg ? Number(exercise.weightKg) : null,
+            durationMinutes: exercise.durationMinutes ? Number(exercise.durationMinutes) : null,
+            notes: exercise.notes || null,
+          })),
       }),
     })
     if (!response.ok) throw new Error(await readError(response))
     const created: Workout = await response.json()
     setWorkouts((current) => [created, ...current])
     setShowComposer(false)
+  }
+
+  async function openWorkoutDetails(workoutId: string) {
+    if (!auth) return
+    setLoadingDetails(true)
+    setError('')
+    try {
+      const response = await fetch(`${API_BASE}/api/tenants/${auth.tenantId}/workouts/${workoutId}`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      })
+      if (!response.ok) throw new Error(await readError(response))
+      setSelectedWorkout(await response.json())
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not load workout details.')
+    } finally {
+      setLoadingDetails(false)
+    }
   }
 
   function signOut() {
@@ -202,17 +226,19 @@ function App() {
             </section>
             <section className="content-section">
               <div className="section-heading"><div><span className="section-kicker">RECENT NOTES</span><h2>Latest workouts</h2></div><button className="text-button" onClick={() => setView('workouts')}>View all <ArrowUpRight size={16} /></button></div>
-              {loading ? <LoadingState /> : workouts.length === 0 ? <EmptyState onAdd={() => setShowComposer(true)} /> : <WorkoutList workouts={workouts.slice(0, 4)} />}
+              {loading ? <LoadingState /> : workouts.length === 0 ? <EmptyState onAdd={() => setShowComposer(true)} /> : <WorkoutList workouts={workouts.slice(0, 4)} onSelect={openWorkoutDetails} />}
             </section>
           </>
         ) : (
           <section className="content-section library-section">
             <div className="section-heading"><div><span className="section-kicker">YOUR ARCHIVE</span><h2>Every rep counts.</h2></div><span className="result-count">{workouts.length} entries</span></div>
-            {loading ? <LoadingState /> : workouts.length === 0 ? <EmptyState onAdd={() => setShowComposer(true)} /> : <WorkoutList workouts={workouts} />}
+            {loading ? <LoadingState /> : workouts.length === 0 ? <EmptyState onAdd={() => setShowComposer(true)} /> : <WorkoutList workouts={workouts} onSelect={openWorkoutDetails} />}
           </section>
         )}
       </main>
       {showComposer && <WorkoutComposer onClose={() => setShowComposer(false)} onSubmit={createWorkout} />}
+      {loadingDetails && <div className="detail-loading"><div className="loader" /></div>}
+      {selectedWorkout && <WorkoutDetails workout={selectedWorkout} onClose={() => setSelectedWorkout(null)} />}
     </div>
   )
 }
@@ -277,17 +303,35 @@ function WorkoutComposer({ onClose, onSubmit }: { onClose: () => void; onSubmit:
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const update = (key: keyof FormState, value: string) => setForm((current) => ({ ...current, [key]: value }))
+  const updateExercise = (index: number, key: keyof ExerciseFormState, value: string) => {
+    setForm((current) => ({
+      ...current,
+      exercises: current.exercises.map((exercise, exerciseIndex) => exerciseIndex === index ? { ...exercise, [key]: value } : exercise),
+    }))
+  }
+  const addExercise = () => setForm((current) => ({
+    ...current,
+    exercises: [...current.exercises, { name: '', sets: '3', reps: '10', weightKg: '', durationMinutes: '', notes: '' }],
+  }))
+  const removeExercise = (index: number) => setForm((current) => ({
+    ...current,
+    exercises: current.exercises.filter((_, exerciseIndex) => exerciseIndex !== index),
+  }))
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setSaving(true); setError('')
     try { await onSubmit(form) } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Could not save workout.') } finally { setSaving(false) }
   }
 
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="composer" role="dialog" aria-modal="true"><div className="composer-header"><div><span className="section-kicker">NEW ENTRY</span><h2>Log a workout</h2></div><button className="icon-button" onClick={onClose}><X size={19} /></button></div><form onSubmit={submit}><div className="form-grid"><label className="wide">Session title<input required maxLength={200} value={form.title} onChange={(e) => update('title', e.target.value)} placeholder="Upper body strength" /></label><label>Date<input required type="date" value={form.date} onChange={(e) => update('date', e.target.value)} /></label><label>Duration (min)<input type="number" min="0" max="1440" value={form.durationMinutes} onChange={(e) => update('durationMinutes', e.target.value)} /></label><label>Calories<input type="number" min="0" max="100000" value={form.caloriesBurned} onChange={(e) => update('caloriesBurned', e.target.value)} /></label><label className="wide">Notes<textarea maxLength={2000} value={form.notes} onChange={(e) => update('notes', e.target.value)} placeholder="How did it feel?" rows={3} /></label></div><div className="exercise-block"><div className="exercise-heading"><span className="section-kicker">OPTIONAL DETAIL</span><strong>First exercise</strong></div><div className="form-grid"><label className="wide">Exercise name<input maxLength={200} value={form.exerciseName} onChange={(e) => update('exerciseName', e.target.value)} placeholder="Bench press" /></label><label>Sets<input type="number" min="0" max="1000" value={form.sets} onChange={(e) => update('sets', e.target.value)} /></label><label>Reps<input type="number" min="0" max="10000" value={form.reps} onChange={(e) => update('reps', e.target.value)} /></label><label>Weight (kg)<input type="number" min="0" max="10000" step="0.5" value={form.weightKg} onChange={(e) => update('weightKg', e.target.value)} placeholder="Optional" /></label></div></div>{error && <div className="form-error">{error}</div>}<div className="composer-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="submit-button compact" disabled={saving}>{saving ? 'Saving…' : 'Save workout'} <Check size={17} /></button></div></form></section></div>
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="composer" role="dialog" aria-modal="true"><div className="composer-header"><div><span className="section-kicker">NEW ENTRY</span><h2>Log a workout</h2></div><button className="icon-button" onClick={onClose}><X size={19} /></button></div><form onSubmit={submit}><div className="form-grid"><label className="wide">Session title<input required maxLength={200} value={form.title} onChange={(e) => update('title', e.target.value)} placeholder="Upper body strength" /></label><label>Date<input required type="date" value={form.date} onChange={(e) => update('date', e.target.value)} /></label><label>Duration (min)<input type="number" min="0" max="1440" value={form.durationMinutes} onChange={(e) => update('durationMinutes', e.target.value)} /></label><label>Calories<input type="number" min="0" max="100000" value={form.caloriesBurned} onChange={(e) => update('caloriesBurned', e.target.value)} /></label><label className="wide">Notes<textarea maxLength={2000} value={form.notes} onChange={(e) => update('notes', e.target.value)} placeholder="How did it feel?" rows={3} /></label></div><div className="exercise-block"><div className="exercise-heading"><div><span className="section-kicker">EXERCISES</span><strong>{form.exercises.filter((exercise) => exercise.name.trim()).length} added</strong></div><button type="button" className="secondary-button add-exercise" onClick={addExercise}><Plus size={15} /> Add exercise</button></div>{form.exercises.map((exercise, index) => <div className="exercise-row" key={index}><div className="exercise-row-top"><span className="exercise-number">{String(index + 1).padStart(2, '0')}</span><strong>Exercise {index + 1}</strong>{form.exercises.length > 1 && <button type="button" className="remove-exercise" onClick={() => removeExercise(index)}><X size={15} /></button>}</div><div className="form-grid"><label className="wide">Exercise name<input maxLength={200} value={exercise.name} onChange={(e) => updateExercise(index, 'name', e.target.value)} placeholder="Bench press" /></label><label>Sets<input type="number" min="0" max="1000" value={exercise.sets} onChange={(e) => updateExercise(index, 'sets', e.target.value)} /></label><label>Reps<input type="number" min="0" max="10000" value={exercise.reps} onChange={(e) => updateExercise(index, 'reps', e.target.value)} /></label><label>Weight (kg)<input type="number" min="0" max="10000" step="0.5" value={exercise.weightKg} onChange={(e) => updateExercise(index, 'weightKg', e.target.value)} placeholder="Optional" /></label><label>Duration (min)<input type="number" min="0" max="1440" value={exercise.durationMinutes} onChange={(e) => updateExercise(index, 'durationMinutes', e.target.value)} placeholder="Optional" /></label><label className="wide">Exercise notes<textarea maxLength={1000} value={exercise.notes} onChange={(e) => updateExercise(index, 'notes', e.target.value)} placeholder="Optional" rows={2} /></label></div></div>)}</div>{error && <div className="form-error">{error}</div>}<div className="composer-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="submit-button compact" disabled={saving}>{saving ? 'Saving…' : 'Save workout'} <Check size={17} /></button></div></form></section></div>
 }
 
-function WorkoutList({ workouts }: { workouts: Workout[] }) {
-  return <div className="workout-list">{workouts.map((workout) => <article className="workout-row" key={workout.id}><div className="date-tile"><strong>{new Date(`${workout.date}T12:00:00`).getDate()}</strong><span>{new Date(`${workout.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' })}</span></div><div className="workout-main"><div className="workout-title"><h3>{workout.title}</h3><span>{workout.notes || 'No notes added'}</span></div><div className="workout-meta"><span><Timer size={14} /> {workout.durationMinutes} min</span><span><Flame size={14} /> {workout.caloriesBurned} kcal</span><span><Dumbbell size={14} /> {workout.exercises?.length || 0} exercises</span></div></div><ArrowUpRight className="row-arrow" size={19} /></article>)}</div>
+function WorkoutList({ workouts, onSelect }: { workouts: Workout[]; onSelect: (workoutId: string) => void }) {
+  return <div className="workout-list">{workouts.map((workout) => <button className="workout-row" key={workout.id} onClick={() => onSelect(workout.id)}><div className="date-tile"><strong>{new Date(`${workout.date}T12:00:00`).getDate()}</strong><span>{new Date(`${workout.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' })}</span></div><div className="workout-main"><div className="workout-title"><h3>{workout.title}</h3><span>{workout.notes || 'No notes added'}</span></div><div className="workout-meta"><span><Timer size={14} /> {workout.durationMinutes} min</span><span><Flame size={14} /> {workout.caloriesBurned} kcal</span><span><Dumbbell size={14} /> {workout.exercises?.length || 0} exercises</span></div></div><ArrowUpRight className="row-arrow" size={19} /></button>)}</div>
+}
+
+function WorkoutDetails({ workout, onClose }: { workout: Workout; onClose: () => void }) {
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="detail-modal" role="dialog" aria-modal="true"><div className="composer-header"><div><span className="section-kicker">WORKOUT DETAIL</span><h2>{workout.title}</h2><p className="detail-date">{new Date(`${workout.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p></div><button className="icon-button" onClick={onClose}><X size={19} /></button></div><div className="detail-stats"><span><Timer size={15} /> {workout.durationMinutes} min</span><span><Flame size={15} /> {workout.caloriesBurned} kcal</span><span><Dumbbell size={15} /> {workout.exercises?.length || 0} exercises</span></div>{workout.notes && <p className="detail-notes">{workout.notes}</p>}<div className="detail-exercises"><span className="section-kicker">EXERCISES</span>{workout.exercises?.length ? workout.exercises.map((exercise, index) => <div className="detail-exercise" key={exercise.id || `${exercise.name}-${index}`}><div><strong>{exercise.name}</strong>{exercise.notes && <small>{exercise.notes}</small>}</div><span>{exercise.sets} sets × {exercise.reps} reps{exercise.weightKg ? ` · ${exercise.weightKg} kg` : ''}{exercise.durationMinutes ? ` · ${exercise.durationMinutes} min` : ''}</span></div>) : <p className="muted-copy">No exercises were added to this entry.</p>}</div></section></div>
 }
 
 function StatCard({ label, value, detail, icon, accent }: { label: string; value: string; detail: string; icon: ReactNode; accent: string }) {
@@ -320,10 +364,13 @@ function validateWorkout(payload: FormState) {
   if (!payload.date) throw new Error('Workout date is required.')
   if (numberOutsideRange(payload.durationMinutes, 0, 1440)) throw new Error('Duration must be between 0 and 1,440 minutes.')
   if (numberOutsideRange(payload.caloriesBurned, 0, 100000)) throw new Error('Calories must be between 0 and 100,000.')
-  if (payload.exerciseName.trim().length > 200) throw new Error('Exercise name must be 200 characters or fewer.')
-  if (payload.exerciseName.trim() && numberOutsideRange(payload.sets, 0, 1000)) throw new Error('Sets must be between 0 and 1,000.')
-  if (payload.exerciseName.trim() && numberOutsideRange(payload.reps, 0, 10000)) throw new Error('Reps must be between 0 and 10,000.')
-  if (payload.weightKg && numberOutsideRange(payload.weightKg, 0, 10000)) throw new Error('Weight must be between 0 and 10,000 kg.')
+  const activeExercises = payload.exercises.filter((exercise) => exercise.name.trim())
+  if (activeExercises.some((exercise) => exercise.name.trim().length > 200)) throw new Error('Exercise names must be 200 characters or fewer.')
+  if (activeExercises.some((exercise) => numberOutsideRange(exercise.sets, 0, 1000))) throw new Error('Sets must be between 0 and 1,000.')
+  if (activeExercises.some((exercise) => numberOutsideRange(exercise.reps, 0, 10000))) throw new Error('Reps must be between 0 and 10,000.')
+  if (activeExercises.some((exercise) => exercise.weightKg && numberOutsideRange(exercise.weightKg, 0, 10000))) throw new Error('Weight must be between 0 and 10,000 kg.')
+  if (activeExercises.some((exercise) => exercise.durationMinutes && numberOutsideRange(exercise.durationMinutes, 0, 1440))) throw new Error('Exercise duration must be between 0 and 1,440 minutes.')
+  if (activeExercises.some((exercise) => exercise.notes.length > 1000)) throw new Error('Exercise notes must be 1,000 characters or fewer.')
 }
 
 function numberOutsideRange(value: string, min: number, max: number) {
