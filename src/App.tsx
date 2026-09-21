@@ -225,13 +225,13 @@ function App() {
               <StatCard label="Current rhythm" value={`${stats.streak} day${stats.streak === 1 ? '' : 's'}`} detail="recent activity" icon={<CalendarDays size={18} />} accent="green" />
             </section>
             <section className="content-section">
-              <div className="section-heading"><div><span className="section-kicker">RECENT NOTES</span><h2>Latest workouts</h2></div><button className="text-button" onClick={() => setView('workouts')}>View all <ArrowUpRight size={16} /></button></div>
+              <div className="section-heading"><div><span className="section-kicker">RECENT NOTES</span><h2>Latest workouts</h2></div><div className="section-actions"><button className="secondary-button section-add" onClick={() => setShowComposer(true)}><Plus size={15} /> Add workout</button><button className="text-button" onClick={() => setView('workouts')}>View all <ArrowUpRight size={16} /></button></div></div>
               {loading ? <LoadingState /> : workouts.length === 0 ? <EmptyState onAdd={() => setShowComposer(true)} /> : <WorkoutList workouts={workouts.slice(0, 4)} onSelect={openWorkoutDetails} />}
             </section>
           </>
         ) : (
           <section className="content-section library-section">
-            <div className="section-heading"><div><span className="section-kicker">YOUR ARCHIVE</span><h2>Every rep counts.</h2></div><span className="result-count">{workouts.length} entries</span></div>
+            <div className="section-heading"><div><span className="section-kicker">YOUR ARCHIVE</span><h2>Every rep counts.</h2></div><div className="section-actions"><button className="secondary-button section-add" onClick={() => setShowComposer(true)}><Plus size={15} /> Add workout</button><span className="result-count">{workouts.length} entries</span></div></div>
             {loading ? <LoadingState /> : workouts.length === 0 ? <EmptyState onAdd={() => setShowComposer(true)} /> : <WorkoutList workouts={workouts} onSelect={openWorkoutDetails} />}
           </section>
         )}
